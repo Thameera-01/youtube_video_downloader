@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProTube Downloader</title>
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="container">
+        <h1>Pro<span>Tube</span> Downloader</h1>
+        
+        <div class="input-group">
+            <label for="videoURL">YouTube Video URL</label>
+            <input type="text" id="videoURL" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+        </div>
+
+        <div class="input-group">
+            <label for="videoQuality">Select Video Quality</label>
+            <select id="videoQuality" aria-label="Video Quality Selection">
+                <option value="1080p">1080p (Full HD - Best Quality)</option>
+                <option value="720p">720p (HD - Standard)</option>
+                <option value="480p">480p (SD - Data Saver)</option>
+                <option value="audio">Audio Only (M4A/MP3 Music)</option>
+            </select>
+        </div>
+
+        <button onclick="startDownload()">Download Now</button>
+        
+        <div class="info-text" id="statusMessage"></div>
+    </div>
+
+    <script>
+        function startDownload() {
+            const url = document.getElementById('videoURL').value;
+            const quality = document.getElementById('videoQuality').value;
+            const status = document.getElementById('statusMessage');
+
+            if(!url) {
+                alert("Please enter a valid YouTube video URL.");
+                return;
+            }
+            
+            status.innerHTML = "⏳ Starting download process...";
+
+           
+            const loadingLink = `http://localhost:4000/start?url=${encodeURIComponent(url)}&quality=${quality}`;
+            
+           
+            window.open(loadingLink, '_blank');
+
+           
+            setTimeout(() => {
+                status.innerHTML = "✅ Processing in the new tab. Please wait...";
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
