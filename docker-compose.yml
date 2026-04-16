@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # 1. Redis (Message Broker) - to manage the queue of video download tasks
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # 2. Node.js Frontend 
+  frontend:
+    build: ./node-app
+    ports:
+      - "4000:4000" # port mapping for Node.js app
+    environment:
+      - REDIS_URL=redis://redis:6379 # Node.js finder link of Redis
+    depends_on:
+      - redis
+
+  # 3. Go Backend Worker downloder
+  worker:
+    build: ./go-worker
+    environment:
+      - REDIS_URL=redis://redis:6379 # Go worker link of Redis
+    depends_on:
+      - redis
