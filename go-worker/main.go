@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,38 +12,56 @@ import (
 
 var ctx = context.Background()
 
+// make stucher to read the json data from node.js server
+type JobData struct {
+	URL     string `json:"url"`
+	Quality string `json:"quality"`
+}
+
 func main() {
-	// 1. Redis conection to docker container
 	rdb := redis.NewClient(&redis.Options{
 		Addr: "redis:6379",
 	})
 
-	fmt.Println("start work! weiting for link...")
+	fmt.Println(" Go Worker started,weiting for link...")
 
-	// 2.  Redis see to the loop(finite Loop)
 	for {
-		// "video_queue" weit ing for link and when link come it will pop the link from the queue
 		result, err := rdb.BRPop(ctx, 0, "video_queue").Result()
 		if err != nil {
 			continue
 		}
 
-		// come the link from the queue and save in videoURL variable
-		videoURL := result[1]
-		fmt.Println("new link Downloading:", videoURL)
+		// json work understand to go file
+		jobString := result[1]
+		var job JobData
+		json.Unmarshal([]byte(jobString), &job)
 
-		// 3. yt-dlp dowinload the video from the link and save in the current directory
-		cmd := exec.Command("yt-dlp", "-f", "bestvideo[height<=1080]+bestaudio/best", "--merge-output-format", "mp4", videoURL)
+		fmt.Printf(" URL: %s | Quality: %s\n", job.URL, job.Quality)
 
-		// Terminal showing progress
+		// 3. Quality find the format code for yt-dlp
+		formatCode := "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+		if job.Quality == "720p" {
+			formatCode = "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+		} else if job.Quality == "480p" {
+			formatCode = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+		} else if job.Quality == "audio" {
+			formatCode = "bestaudio[ext=m4a]/bestaudio"
+		}
+
+		// download the video using yt-dlp with the format code
+		cmd := exec.Command("yt-dlp",
+			"-f", formatCode,
+			"--merge-output-format", "mp4",
+			"-o", "/downloads/%(title)s.%(ext)s",
+			job.URL)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 
 		err = cmd.Run()
 		if err != nil {
-			fmt.Println(" Error :", err)
+			fmt.Println(" Error:", err)
 		} else {
-			fmt.Println("vedio downlode sucsusfully Merged !")
+			fmt.Println("vedio downlode and save succsesful!")
 		}
 	}
 }

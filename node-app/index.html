@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ProTube Downloader</title>
+    <title>DownTube Downloader</title>
     
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <div class="container">
-        <h1>Pro<span>Tube</span> Downloader</h1>
+        <h1>Down<span>Tube</span> Downloader</h1>
         
         <div class="input-group">
             <label for="videoURL">YouTube Video URL</label>
@@ -31,6 +31,12 @@
         
         <div class="info-text" id="statusMessage"></div>
     </div>
+    <div id="file-gallery" style="margin-top: 30px; color: white;">
+    <h3> Completed Downloads</h3>
+    <ul id="file-list" style="list-style: none; padding: 0;">
+        </ul>
+    <button onclick="loadFiles()" style="padding: 10px; cursor: pointer;">Refresh List</button>
+</div>
 
     <script>
         function startDownload() {
@@ -53,9 +59,32 @@
 
            
             setTimeout(() => {
-                status.innerHTML = "✅ Processing in the new tab. Please wait...";
+                status.innerHTML = " Processing in the new tab. Please wait...";
             }, 3000);
         }
+        function loadFiles() {
+        fetch('/list-files')
+            .then(res => res.json())
+            .then(files => {
+                const list = document.getElementById('file-list');
+                list.innerHTML = ''; 
+                
+                files.forEach(file => {
+                    const listItem = document.createElement('li');
+                    listItem.style.margin = "10px 0";
+                    listItem.innerHTML = `
+                        <span>🎥 ${file}</span> 
+                        <a href="/view-file/${encodeURIComponent(file)}" target="_blank" 
+                           style="color: #ff4757; margin-left: 20px; font-weight: bold;">
+                           Download/Play
+                        </a>
+                    `;
+                    list.appendChild(listItem);
+                });
+            });
+    }
+
+    window.onload = loadFiles;
     </script>
 </body>
 </html>

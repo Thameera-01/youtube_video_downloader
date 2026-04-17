@@ -1,20 +1,44 @@
 const express = require('express');
 const cors = require('cors');
-const youtubedl = require('youtube-dl-exec');
-const fs = require('fs');
+const redis = require('redis');
 const path = require('path');
-const ffmpegPath = require('ffmpeg-static');
+const fs = require('fs');
 
 const app = express();
+app.use(express.static(__dirname)); 
 app.use(cors());
+app.get('/list-files', (req, res) => {
+    const directoryPath = '/downloads'; // Docker connected to the same folder
+    
+    fs.readdir(directoryPath, (err, files) => {
+        if (err) {
+            return res.status(500).send('Unable to scan directory');
+        }
+        //get  video files and audio files
+        const videoFiles = files.filter(file => file.endsWith('.mp4') || file.endsWith('.m4a'));
+        res.json(videoFiles);
+    });
+});
 
+app.use('/view-file', express.static('/downloads'));
+
+app.use('/get-file', express.static(path.join(__dirname, '../downloads')))
+// 1. Redis conected 
+const redisClient = redis.createClient({
+    url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
+redisClient.on('error', (err) => console.log('❌ Redis Error:', err));
+redisClient.connect().then(() => console.log('✅ Node.js: Redis connected'));
+
+
+// loding page
 app.get('/start', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
     const videoURL = req.query.url;
     let requestedQuality = req.query.quality || '1080p';
 
     if (!videoURL) return res.status(400).send('Invalid YouTube URL');
 
-    
     const loadingHTML = `
     <!DOCTYPE html>
     <html lang="si">
@@ -45,39 +69,21 @@ app.get('/start', (req, res) => {
         </style>
     </head>
     <body>
-        <div class="spinner"></div>
-        <h2>Processing your video...</h2>
-        <p>The video and audio are being merged. This may take a few minutes.<br>
-        <span class="highlight">Please wait without closing this tab!</span></p>
-        
-        <script>
-           <body>
         <div id="loader" class="spinner"></div>
-        <div id="success" class="success-icon">✅</div>
-
         <h2 id="title">Processing your video...</h2>
-        <p id="msg">prosesing the video</p>
+        <p id="msg">The video and audio are being merged.<br>
+        <span class="highlight">Please wait...</span></p>
         
         <script>
+            // conect with main.go file
             const url = "/download?url=${encodeURIComponent(videoURL)}&quality=${requestedQuality}";
             
-            window.location.href = url;
-
-            let checkDownload = setInterval(() => {
-               
-            }, 1000);
-
-            
-            
-            window.addEventListener('blur', () => {
-                
+            // conecrt whit main.go file and send the video url and quality
+            fetch(url).then(response => {
                 document.getElementById('loader').style.display = 'none';
-                document.getElementById('success').style.display = 'block';
                 document.getElementById('title').innerText = 'Download Started!';
-                document.getElementById('msg').innerText = 'Now, your video is downloading in the background. You can close this tab or start another download.';
+                document.getElementById('msg').innerText = 'Your video is downloading in the background. You can check the Go Worker terminal.';
             });
-        
-
         </script>
     </body>
     </html>
@@ -85,76 +91,33 @@ app.get('/start', (req, res) => {
     res.send(loadingHTML);
 });
 
-app.get('/download', async (req, res) => {
-    req.setTimeout(0); 
 
+app.get('/download', async (req, res) => {
     const videoURL = req.query.url;
     let requestedQuality = req.query.quality || '1080p';
 
     if (!videoURL) return res.status(400).send('Invalid YouTube URL');
 
-    console.log(`\nStarting download for: ${videoURL} | Requested Quality: ${requestedQuality}`);
-
-    let tempFilePath = '';
-    let finalDownloadName = '';
-
     try {
-        const info = await youtubedl(videoURL, { dumpJson: true, noWarnings: true });
-        const cleanTitle = info.title.replace(/[^\w\s]/gi, ''); 
-
-        let formatCode = 'bestvideo+bestaudio/best'; 
-        let outputExt = 'mp4';
-
-        if (requestedQuality === '1080p') {
-            formatCode = 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
-        } else if (requestedQuality === '720p') {
-            formatCode = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
-        } else if (requestedQuality === '480p') {
-            formatCode = 'bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
-        } else if (requestedQuality === 'audio') {
-            formatCode = 'bestaudio[ext=m4a]/bestaudio'; 
-            outputExt = 'm4a'; 
-        }
-
-        tempFilePath = path.join(__dirname, `temp_${Date.now()}.${outputExt}`);
-        finalDownloadName = `${cleanTitle}.${outputExt}`;
-
-        console.log("Downloading.... Please wait...");
-
-        const dlOptions = {
-            format: formatCode,
-            output: tempFilePath,
-            ffmpegLocation: ffmpegPath, 
-        };
-
-        if (outputExt === 'mp4') {
-            dlOptions.mergeOutputFormat = 'mp4'; 
-        } else {
-            dlOptions.extractAudio = true;       
-            dlOptions.audioFormat = 'm4a'; 
-        }
-
-        await youtubedl.exec(videoURL, dlOptions);
-
-        console.log(`Merge complete! Sending file to Browser...`);
-        
-        res.download(tempFilePath, finalDownloadName, (err) => {
-            if (err) console.error("\n[Network Error]:", err.message);
-            else console.log("\n[Success]");
-            
-            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        // Go Worker convert vedio as jason format and send to video_queue
+        const jobData = JSON.stringify({ 
+            url: videoURL, 
+            quality: requestedQuality 
         });
 
+        // video_queue to share the video download job with Go Worker
+        await redisClient.lPush('video_queue', jobData);
+        
+        console.log(` send to Go Worker : ${videoURL} (${requestedQuality})`);
+        res.send('Success'); // done 
+        
     } catch (error) {
-        console.error("\n[Error]", error.message);
-        if (!res.headersSent) res.status(500).send('Error downloading video.');
-        if (tempFilePath && fs.existsSync(tempFilePath)) {
-            try { fs.unlinkSync(tempFilePath); } catch(e) {}
-        }
+        console.error("Queue Error:", error);
+        res.status(500).send('Error connecting to Queue');
     }
 });
 
 const PORT = 4000;
 app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`Node.js Server is running on port ${PORT}`);
 });
